@@ -189,6 +189,36 @@ std::vector<at::Tensor> layer_norm_affine(
   return {output, mean, invvar};
 }
 
+
+std::vector<at::Tensor> layer_norm_affine1(
+    at::Tensor input,
+    at::Tensor input1,
+    #ifdef VERSION_GE_1_1
+    at::IntArrayRef normalized_shape,
+    #else
+    at::IntList normalized_shape,
+    #endif
+    at::Tensor gamma,
+    at::Tensor beta,
+    double epsilon) {
+  CHECK_INPUT(input);
+  CHECK_INPUT(gamma);
+  CHECK_INPUT(beta);
+  int n1,n2;
+  check_args(input,normalized_shape,gamma,beta,n1,n2);
+  at::Tensor output = at::empty_like(input);
+  at::Tensor output1 = at::empty_like(input1);
+  const auto stats_dtype = (input.scalar_type() == at::ScalarType::Half || input.scalar_type() == at::ScalarType::BFloat16) ? at::ScalarType::Float : input.scalar_type();
+  at::Tensor mean = at::empty({n1}, input.options().dtype(stats_dtype));
+  at::Tensor invvar = at::empty_like(mean);
+  at::Tensor mean1 = at::empty({n1}, input1.options().dtype(stats_dtype));
+  at::Tensor invvar1 = at::empty_like(mean1);
+  cuda_layer_norm1(&output,&mean,&invvar,&input,&output1,&mean1,&invvar1,&input1,n1,n2,
+      normalized_shape,&gamma,&beta,epsilon);
+  return {output, mean, invvar, output1, mean1, invvar1};
+}
+
+
 std::vector<at::Tensor> layer_norm_affine_mixed_dtypes(
     at::Tensor input,
     #ifdef VERSION_GE_1_1
@@ -297,6 +327,50 @@ std::vector<at::Tensor> layer_norm_gradient_affine(
   }
   return {grad_input, grad_gamma, grad_beta};
 }
+
+
+std::vector<at::Tensor> layer_norm_gradient_affine1(
+    at::Tensor dout,
+    c10::optional<at::Tensor> mean_,
+    at::Tensor invvar,
+    at::Tensor input_or_output,
+    at::Tensor dout1,
+    c10::optional<at::Tensor> mean1_,
+    at::Tensor invvar1,
+    at::Tensor input_or_output1,
+    #ifdef VERSION_GE_1_1
+    at::IntArrayRef normalized_shape,
+    #else
+    at::IntList normalized_shape,
+    #endif
+    at::Tensor gamma,
+    at::Tensor beta,
+    double epsilon,
+    bool memory_efficient) {
+  CHECK_INPUT(dout);
+  CHECK_INPUT(invvar);
+  CHECK_INPUT(input_or_output);
+  CHECK_INPUT(gamma);
+  CHECK_INPUT(beta);
+  int n1,n2;
+  check_args(input_or_output,normalized_shape,gamma,beta,n1,n2);
+  at::Tensor grad_input = at::empty_like(input_or_output);
+  at::Tensor grad_input1 = at::empty_like(input_or_output1);
+  at::Tensor grad_gamma = at::empty_like(gamma);
+  at::Tensor grad_beta = at::empty_like(beta);
+//   at::Tensor *mean = mean_.has_value() ? &mean_.value() : NULL;
+  if (mean_.has_value()) {
+    cuda_layer_norm_gradient(&dout,&mean_.value(),&invvar,&input_or_output,&dout1,&mean1_.value(),&invvar1,&input_or_output1,n1,n2,
+        normalized_shape,&gamma,&beta,epsilon,
+        &grad_input,&grad_input1,&grad_gamma,&grad_beta,memory_efficient);
+  } else {
+    cuda_layer_norm_gradient(&dout,NULL,&invvar,&input_or_output,&dout1,NULL,&invvar1,&input_or_output1,n1,n2,
+        normalized_shape,&gamma,&beta,epsilon,
+        &grad_input,&grad_input1,&grad_gamma,&grad_beta,memory_efficient);
+  }
+  return {grad_input, grad_input1, grad_gamma, grad_beta};
+}
+
 
 void cuda_rms_norm(
     at::Tensor* output,
@@ -444,8 +518,10 @@ std::vector<at::Tensor> rms_norm_gradient_affine(
 
 PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
   m.def("forward_affine", &layer_norm_affine, "LayerNorm forward (CUDA)");
+  m.def("forward_affine1", &layer_norm_affine1, "LayerNorm forward (CUDA)1");
   m.def("forward", &layer_norm, "LayerNorm forward (CUDA)");
   m.def("backward_affine", &layer_norm_gradient_affine, "LayerNorm backward (CUDA)");
+  m.def("backward_affine1", &layer_norm_gradient_affine1, "LayerNorm backward (CUDA)1");
   m.def("backward", &layer_norm_gradient, "LayerNorm backward (CUDA)");
 
   m.def("forward_affine_mixed_dtypes", &layer_norm_affine_mixed_dtypes, "LayerNorm forward with mixed dtypes (CUDA) compatible with Megatron's implementation");
