@@ -1446,7 +1446,8 @@ void HostApplyLayerNorm1(
     )
 {
     auto stream = at::cuda::getCurrentCUDAStream().stream();
-    auto stream1 = at::cuda::getCurrentCUDAStream().stream();
+    // auto stream1 = at::cuda::getCurrentCUDAStream().stream();
+    auto stream1 = at::cuda::getStreamFromPool().stream();
     const dim3 threads(32,4,1);
     const uint64_t maxGridY = at::cuda::getCurrentDeviceProperties()->maxGridSize[1];
     const dim3 blocks(1, std::min((uint64_t)n1, maxGridY), 1);
