@@ -172,10 +172,11 @@ if "--distributed_lamb" in sys.argv:
         )
     )
 
-if "--cuda_ext" in sys.argv:
-    sys.argv.remove("--cuda_ext")
-    raise_if_cuda_home_none("--cuda_ext")
-    check_cuda_torch_binary_vs_bare_metal(CUDA_HOME)
+# if "--cuda_ext" in sys.argv:
+if True:
+    # sys.argv.remove("--cuda_ext")
+    # raise_if_cuda_home_none("--cuda_ext")
+    # check_cuda_torch_binary_vs_bare_metal(CUDA_HOME)
 
     ext_modules.append(
         CUDAExtension(

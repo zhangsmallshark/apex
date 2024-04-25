@@ -435,18 +435,23 @@ void cuApplyLayerNorm1_(
   // 2) Tensors are contiguous
   //
   for (auto i0=blockIdx.y; i0 < 2*n1; i0 += gridDim.y) {
-    if (i1 < n1) {
-        auto i1 = i0;
-        V* output_vals = output_vals0;
-        U* mean = mean0;
-        U* invvar = invvar0;
-        T* vals = vals0;
+    V* output_vals;
+    U* mean;
+    U* invvar;
+    const T* vals;
+    uint64_t i1;
+    if (i0 < n1) {
+        i1 = i0;
+        output_vals = output_vals0;
+        mean = mean0;
+        invvar = invvar0;
+        vals = vals0;
     } else {
-        auto i1 = i0 - n1;
-        V* output_vals = output_vals1;
-        U* mean = mean1;
-        U* invvar = invvar1;
-        T* vals = vals1;
+        i1 = i0 - n1;
+        output_vals = output_vals1;
+        mean = mean1;
+        invvar = invvar1;
+        vals = vals1;
     }
 
     SharedMemory<U> shared;
@@ -1149,20 +1154,26 @@ void cuComputeGradInput1(
     bool rms_only)
 {
   for (auto i0=blockIdx.y; i0 < 2*n1; i0 += gridDim.y) {
+    uint64_t i1;
+    const V* dout;
+    const T* input_or_output;
+    const U* mean;
+    const U* invvar;
+    T* grad_input;
     if (i0 < n1) {
-        auto i1 = i0;
-        V* dout = dout0;
-        T* input_or_output = input_or_output0;
-        U* mean = mean0;
-        U* invvar = invvar0;
-        T* grad_input = grad_input0;
+        i1 = i0;
+        dout = dout0;
+        input_or_output = input_or_output0;
+        mean = mean0;
+        invvar = invvar0;
+        grad_input = grad_input0;
     } else {
-        auto i1 = i0 - n1;
-        V* dout = dout1;
-        T* input_or_output = input_or_output1;
-        U* mean = mean1;
-        U* invvar = invvar1;
-        T* grad_input = grad_input1;
+        i1 = i0 - n1;
+        dout = dout1;
+        input_or_output = input_or_output1;
+        mean = mean1;
+        invvar = invvar1;
+        grad_input = grad_input1;
     }
 
     U sum_loss1 = U(0);

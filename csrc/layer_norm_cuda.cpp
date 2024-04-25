@@ -142,6 +142,28 @@ void cuda_layer_norm(
     at::Tensor* beta,
     double epsilon);
 
+void cuda_layer_norm1(
+    at::Tensor* output,
+    at::Tensor* mean,
+    at::Tensor* invvar,
+    at::Tensor* input,
+ 
+    at::Tensor* output1,
+    at::Tensor* mean1,
+    at::Tensor* invvar1,
+    at::Tensor* input1,
+ 
+    int n1,
+    int n2,
+    #ifdef VERSION_GE_1_1
+    at::IntArrayRef normalized_shape,
+    #else
+    at::IntList normalized_shape,
+    #endif
+    at::Tensor* gamma,
+    at::Tensor* beta,
+    double epsilon);
+
 #define CHECK_CUDA(x) TORCH_CHECK(x.is_cuda(), #x " must be a CUDA tensor")
 #define CHECK_CONTIGUOUS(x) TORCH_CHECK(x.is_contiguous(), #x " must be contiguous")
 #define CHECK_INPUT(x) CHECK_CUDA(x); CHECK_CONTIGUOUS(x)
@@ -261,6 +283,32 @@ void cuda_layer_norm_gradient(
     bool memory_efficient
     );
 
+void cuda_layer_norm_gradient1(
+    at::Tensor* dout,
+    at::Tensor* mean,
+    at::Tensor* invvar,
+    at::Tensor* input_or_output,
+ 
+    at::Tensor* dout1,
+    at::Tensor* mean1,
+    at::Tensor* invvar1,
+    at::Tensor* input_or_output1,
+    int n1,
+    int n2,
+    #ifdef VERSION_GE_1_1
+    at::IntArrayRef normalized_shape,
+    #else
+    at::IntList normalized_shape,
+    #endif
+    at::Tensor* gamma,
+    at::Tensor* beta,
+    double epsilon,
+    at::Tensor* grad_input,
+    at::Tensor* grad_input1,
+    at::Tensor* grad_gamma,
+    at::Tensor* grad_beta,
+    bool memory_efficient);
+
 at::Tensor layer_norm_gradient(
     at::Tensor dout,
     c10::optional<at::Tensor> mean_,
@@ -360,11 +408,11 @@ std::vector<at::Tensor> layer_norm_gradient_affine1(
   at::Tensor grad_beta = at::empty_like(beta);
 //   at::Tensor *mean = mean_.has_value() ? &mean_.value() : NULL;
   if (mean_.has_value()) {
-    cuda_layer_norm_gradient(&dout,&mean_.value(),&invvar,&input_or_output,&dout1,&mean1_.value(),&invvar1,&input_or_output1,n1,n2,
+    cuda_layer_norm_gradient1(&dout,&mean_.value(),&invvar,&input_or_output,&dout1,&mean1_.value(),&invvar1,&input_or_output1,n1,n2,
         normalized_shape,&gamma,&beta,epsilon,
         &grad_input,&grad_input1,&grad_gamma,&grad_beta,memory_efficient);
   } else {
-    cuda_layer_norm_gradient(&dout,NULL,&invvar,&input_or_output,&dout1,NULL,&invvar1,&input_or_output1,n1,n2,
+    cuda_layer_norm_gradient1(&dout,NULL,&invvar,&input_or_output,&dout1,NULL,&invvar1,&input_or_output1,n1,n2,
         normalized_shape,&gamma,&beta,epsilon,
         &grad_input,&grad_input1,&grad_gamma,&grad_beta,memory_efficient);
   }
