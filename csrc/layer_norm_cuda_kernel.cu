@@ -1393,6 +1393,39 @@ void HostApplyLayerNorm(
 }
 
 
+// template<typename T, typename U, typename V=T>
+// void HostApplyLayerNorm1(
+//     V* output,
+//     U* mean,
+//     U* invvar,
+//     const T* input,
+
+//     V* output1,
+//     U* mean1,
+//     U* invvar1,
+//     const T* input1,
+
+//     int n1,
+//     int n2,
+//     double epsilon,
+//     const V* gamma,
+//     const V* beta
+//     )
+// {
+//     auto stream = at::cuda::getCurrentCUDAStream().stream();
+//     const dim3 threads(32,4,1);
+//     const uint64_t maxGridY = at::cuda::getCurrentDeviceProperties()->maxGridSize[1];
+//     int a_n1 = 2 * n1;
+//     const dim3 blocks(1, std::min((uint64_t)a_n1, maxGridY), 1);
+//     int nshared =
+//         threads.y > 1 ?
+//             threads.y*sizeof(U)+(threads.y/2)*sizeof(U) :
+//             0;
+//     cuApplyLayerNorm1<<<blocks, threads, nshared, stream>>>(
+//       output, mean, invvar, input, output1, mean1, invvar1, input1, n1, n2, U(epsilon), gamma, beta);
+// }
+
+
 template<typename T, typename U, typename V=T>
 void HostApplyLayerNorm1(
     V* output,
@@ -1413,16 +1446,19 @@ void HostApplyLayerNorm1(
     )
 {
     auto stream = at::cuda::getCurrentCUDAStream().stream();
+    auto stream1 = at::cuda::getCurrentCUDAStream().stream();
     const dim3 threads(32,4,1);
     const uint64_t maxGridY = at::cuda::getCurrentDeviceProperties()->maxGridSize[1];
-    int a_n1 = 2 * n1;
-    const dim3 blocks(1, std::min((uint64_t)a_n1, maxGridY), 1);
+    const dim3 blocks(1, std::min((uint64_t)n1, maxGridY), 1);
     int nshared =
         threads.y > 1 ?
             threads.y*sizeof(U)+(threads.y/2)*sizeof(U) :
             0;
-    cuApplyLayerNorm1<<<blocks, threads, nshared, stream>>>(
-      output, mean, invvar, input, output1, mean1, invvar1, input1, n1, n2, U(epsilon), gamma, beta);
+    cuApplyLayerNorm<<<blocks, threads, nshared, stream>>>(
+      output, mean, invvar, input, n1, n2, U(epsilon), gamma, beta);
+
+    cuApplyLayerNorm<<<blocks, threads, nshared, stream1>>>(
+      output1, mean1, invvar1, input1, n1, n2, U(epsilon), gamma, beta);
 }
 
 
@@ -1516,7 +1552,6 @@ void cuda_layer_norm1(
               mean1->DATA_PTR<accscalar_t>(),
           invvar1->DATA_PTR<accscalar_t>(),
           input1->DATA_PTR<scalar_t_in>(),
-
           n1,n2,
           epsilon,
           gamma != NULL ? gamma->DATA_PTR<scalar_t_out>() : NULL,
