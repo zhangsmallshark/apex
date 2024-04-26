@@ -1446,7 +1446,6 @@ void HostApplyLayerNorm1(
     )
 {
     auto stream = at::cuda::getCurrentCUDAStream().stream();
-    // auto stream1 = at::cuda::getCurrentCUDAStream().stream();
     auto stream1 = at::cuda::getStreamFromPool().stream();
     const dim3 threads(32,4,1);
     const uint64_t maxGridY = at::cuda::getCurrentDeviceProperties()->maxGridSize[1];
@@ -1705,6 +1704,7 @@ void HostLayerNormGradient1(
     )
 {
     auto stream = at::cuda::getCurrentCUDAStream().stream();
+    auto stream1 = at::cuda::getStreamFromPool().stream();
 
     if (gamma != NULL && beta != NULL) {
       // compute grad_gamma(j) and grad_beta(j)
@@ -1741,7 +1741,7 @@ void HostLayerNormGradient1(
                         part_grad_beta.DATA_PTR<U>(),
                         epsilon,
                         false);
-      });
+        });
 
       const dim3 threads3(32,8,1);
       const dim3 blocks3((n2+threads2.x-1)/threads2.x,1,1);
@@ -1758,34 +1758,151 @@ void HostLayerNormGradient1(
 
     // compute grad_input
     const uint64_t maxGridY = at::cuda::getCurrentDeviceProperties()->maxGridSize[1];
-    int a_n1 = 2 * n1;
-    const dim3 blocks1(1, std::min((uint64_t)a_n1, maxGridY), 1);
+    const dim3 blocks1(1, std::min((uint64_t)n1, maxGridY), 1);
     const dim3 threads1(32,4,1);
     int nshared =
             threads1.y > 1 ?
             threads1.y*threads1.x*sizeof(U) :
             0;
     BOOL_SWITCH(memory_efficient, MemoryEfficient, [&] {
-      auto kernel = cuComputeGradInput1<T, U, V, MemoryEfficient>;
+      auto kernel = cuComputeGradInput<T, U, V, MemoryEfficient>;
       kernel<<<blocks1, threads1, nshared, stream>>>(
               dout,
               input_or_output->DATA_PTR<T>(),
-              dout1,
-              input_or_output1->DATA_PTR<T>(),
               n1,n2,
               mean,
               invvar,
+              U(epsilon),
+              gamma,
+              beta,
+              grad_input,
+              epsilon,
+              false);
+    });
+
+    BOOL_SWITCH(memory_efficient, MemoryEfficient, [&] {
+      auto kernel = cuComputeGradInput<T, U, V, MemoryEfficient>;
+      kernel<<<blocks1, threads1, nshared, stream1>>>(
+              dout1,
+              input_or_output1->DATA_PTR<T>(),
+              n1,n2,
               mean1,
               invvar1,
               U(epsilon),
               gamma,
               beta,
-              grad_input,
               grad_input1,
               epsilon,
               false);
     });
 }
+
+
+// template<typename T, typename U=float, typename V=T>
+// void HostLayerNormGradient1(
+//     const V* dout,
+//     const U* mean,
+//     const U* invvar,
+//     at::Tensor* input_or_output,
+//     const V* dout1,
+//     const U* mean1,
+//     const U* invvar1,
+//     at::Tensor* input_or_output1,
+
+//     int n1,
+//     int n2,
+//     const V* gamma,
+//     const V* beta,
+//     double epsilon,
+//     T* grad_input,
+//     T* grad_input1,
+//     V* grad_gamma,
+//     V* grad_beta,
+//     bool memory_efficient
+//     )
+// {
+//     auto stream = at::cuda::getCurrentCUDAStream().stream();
+
+//     if (gamma != NULL && beta != NULL) {
+//       // compute grad_gamma(j) and grad_beta(j)
+//       const int part_size = 16;
+//       const dim3 threads2(32,4,1);
+//       const dim3 blocks2((n2+threads2.x-1)/threads2.x,part_size,1);
+//       const int nshared2_a = 2 * sizeof(U) * threads2.y * threads2.y * (threads2.x + 1);
+//       const int nshared2_b = threads2.x * threads2.y * sizeof(U);
+//       const int nshared2 = nshared2_a > nshared2_b ? nshared2_a : nshared2_b;
+//       // note (mkozuki): I can hard code part_grad_gamma's dtype as float given that
+//       // the `cuda_layer_norm_gradient` doesn't support double.
+//       const auto part_grad_dtype =
+//         (input_or_output->scalar_type() == at::ScalarType::Half || input_or_output->scalar_type() == at::ScalarType::BFloat16) ?
+//         at::ScalarType::Float :
+//         input_or_output->scalar_type();
+//       at::Tensor part_grad_gamma = at::empty({part_size,n2}, input_or_output->options().dtype(part_grad_dtype));
+//       at::Tensor part_grad_beta = at::empty_like(part_grad_gamma);
+//       BOOL_SWITCH(memory_efficient, MemoryEfficient, [&]{
+//         auto kernel = &cuComputePartGradGammaBeta1<T, U, V, MemoryEfficient>;
+//         kernel<<<blocks2, threads2, nshared2, stream>>>(
+//                         dout,
+//                         input_or_output->DATA_PTR<T>(),
+//                         dout1,
+//                         input_or_output1->DATA_PTR<T>(),
+//                         n1,n2,
+//                         mean,
+//                         invvar,
+//                         mean1,
+//                         invvar1,
+//                         U(epsilon),
+//                         gamma,
+//                         beta,
+//                         part_grad_gamma.DATA_PTR<U>(),
+//                         part_grad_beta.DATA_PTR<U>(),
+//                         epsilon,
+//                         false);
+//       });
+
+//       const dim3 threads3(32,8,1);
+//       const dim3 blocks3((n2+threads2.x-1)/threads2.x,1,1);
+//       const int nshared3 = threads3.x * threads3.y * sizeof(U);
+//       cuComputeGradGammaBeta<<<blocks3, threads3, nshared3, stream>>>(
+//                       part_grad_gamma.DATA_PTR<U>(),
+//                       part_grad_beta.DATA_PTR<U>(),
+//                       part_size,
+//                       n1,n2,
+//                       grad_gamma,
+//                       grad_beta,
+//                       false);
+//     }
+
+//     // compute grad_input
+//     const uint64_t maxGridY = at::cuda::getCurrentDeviceProperties()->maxGridSize[1];
+//     int a_n1 = 2 * n1;
+//     const dim3 blocks1(1, std::min((uint64_t)a_n1, maxGridY), 1);
+//     const dim3 threads1(32,4,1);
+//     int nshared =
+//             threads1.y > 1 ?
+//             threads1.y*threads1.x*sizeof(U) :
+//             0;
+//     BOOL_SWITCH(memory_efficient, MemoryEfficient, [&] {
+//       auto kernel = cuComputeGradInput1<T, U, V, MemoryEfficient>;
+//       kernel<<<blocks1, threads1, nshared, stream>>>(
+//               dout,
+//               input_or_output->DATA_PTR<T>(),
+//               dout1,
+//               input_or_output1->DATA_PTR<T>(),
+//               n1,n2,
+//               mean,
+//               invvar,
+//               mean1,
+//               invvar1,
+//               U(epsilon),
+//               gamma,
+//               beta,
+//               grad_input,
+//               grad_input1,
+//               epsilon,
+//               false);
+//     });
+// }
 
 
 template<typename T, typename U=float, typename V=T>
